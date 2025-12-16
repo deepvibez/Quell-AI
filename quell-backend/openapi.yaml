@@ -1,0 +1,832 @@
+openapi: 3.0.3
+info:
+  title: Quell AI Backend (derived from routes)
+  version: 1.0.0
+  description: |
+    OpenAPI specification for the Quell AI backend API. Endpoints cover authentication,
+    store management, Shopify OAuth, chat webhook, inbox, support tickets, appearance,
+    analytics, and admin metrics.
+servers:
+  - url: https://histioid-imogene-spinally.ngrok-free.dev
+    description: Production
+  - url: http://localhost:3000
+    description: Local
+
+tags:
+  - name: Auth
+    description: Authentication endpoints (signup, login, current user)
+  - name: Stores
+    description: Store listing, details, sync and disconnection
+  - name: Shopify
+    description: Shopify OAuth and install flow
+  - name: Chat
+    description: Chat webhook proxy for incoming chat messages
+  - name: Inbox
+    description: Conversation sessions and message threads
+  - name: Support
+    description: Support ticket CRUD for sellers
+  - name: CustomerTickets
+    description: Tickets created by customers via chatbot
+  - name: Appearance
+    description: Chatbot appearance and branding settings
+  - name: Analytics
+    description: Conversation, sales, behavior and AI analysis endpoints
+  - name: Admin
+    description: Platform-wide admin metrics and lists
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        email: { type: string, format: email }
+        name: { type: string }
+
+    TokenResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        token: { type: string }
+        user: { $ref: "#/components/schemas/User" }
+
+    Store:
+      type: object
+      properties:
+        id: { type: integer }
+        shop_domain: { type: string }
+        store_id: { type: string }
+        widget_token: { type: string }
+        product_count: { type: integer }
+        status: { type: string }
+        last_sync_at: { type: string, format: date-time }
+        installed_at: { type: string, format: date-time }
+
+    Message:
+      type: object
+      properties:
+        id: { type: integer }
+        session_id: { type: string }
+        store_url: { type: string }
+        channel: { type: string }
+        user_message: { type: string, nullable: true }
+        bot_response: { type: string, nullable: true }
+        message_json: { type: object, nullable: true }
+        is_read: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    Ticket:
+      type: object
+      properties:
+        id: { type: integer }
+        store_url: { type: string }
+        subject: { type: string }
+        issue_type: { type: string }
+        priority: { type: string }
+        status: { type: string }
+        channel: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+security:
+  - BearerAuth: []
+
+paths:
+
+  /api/auth/signup:
+    post:
+      tags: [Auth]
+      summary: Register a new user and link a store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+                name: { type: string }
+                shopToken: { type: string }
+              required: [email, password, name, shopToken]
+      responses:
+        '200':
+          description: Created with token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login and return JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+              required: [email, password]
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+        '401':
+          description: Invalid credentials
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated user and their stores
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user and stores
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+                  stores:
+                    type: array
+                    items: { $ref: "#/components/schemas/Store" }
+
+  /api/stores:
+    get:
+      tags: [Stores]
+      summary: List stores for the authenticated user
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Seller stores
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  stores:
+                    type: array
+                    items: { $ref: "#/components/schemas/Store" }
+
+  /api/stores/{storeId}/sync:
+    post:
+      tags: [Stores]
+      summary: Trigger a manual product sync for the specified store
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: storeId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Sync initiated
+
+  /api/stores/{storeId}:
+    get:
+      tags: [Stores]
+      summary: Get details for a specific store
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: storeId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Store object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  store: { $ref: "#/components/schemas/Store" }
+
+    delete:
+      tags: [Stores]
+      summary: Disconnect or deactivate a store (soft delete)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: storeId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Store disconnected
+
+  /api/shopify/install:
+    get:
+      tags: [Shopify]
+      summary: Redirect to Shopify OAuth installation URL
+      parameters:
+        - in: query
+          name: shop
+          schema: { type: string }
+      responses:
+        '302':
+          description: Redirect to Shopify
+
+  /api/shopify/callback:
+    get:
+      tags: [Shopify]
+      summary: Shopify OAuth callback that exchanges code and stores pending registration
+      parameters:
+        - in: query
+          name: code
+          schema: { type: string }
+        - in: query
+          name: shop
+          schema: { type: string }
+        - in: query
+          name: hmac
+          schema: { type: string }
+      responses:
+        '302':
+          description: Redirects to frontend signup/login
+
+  /:
+    post:
+      tags: [Chat]
+      summary: Chat webhook proxy (accepts chat payload and stores message)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              example:
+                type: "chat_message"
+                store: "example.myshopify.com"
+                sessionId: "sess-123"
+                message: "Show me red shoes"
+      responses:
+        '200':
+          description: Webhook processed
+
+  /api/inbox:
+    get:
+      tags: [Inbox]
+      summary: List conversation sessions (grouped) with pagination and filters
+      parameters:
+        - in: query
+          name: store_url
+          required: true
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, default: 30 }
+        - in: query
+          name: channel
+          schema: { type: string }
+        - in: query
+          name: only_unread
+          schema: { type: boolean }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        '200':
+          description: Paginated session list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  meta:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      page: { type: integer }
+                      perPage: { type: integer }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        session_id: { type: string }
+                        channel: { type: string }
+                        last_message_at: { type: string }
+                        last_user_message: { type: string }
+                        last_bot_response: { type: string }
+                        unread_count: { type: integer }
+
+  /api/inbox/{sessionId}/messages:
+    get:
+      tags: [Inbox]
+      summary: Fetch full message thread for a session
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: store_url
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Thread messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessionId: { type: string }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Message" }
+
+  /api/inbox/{sessionId}/mark-read:
+    post:
+      tags: [Inbox]
+      summary: Mark a session as read (emits socket update)
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                store_url: { type: string }
+      responses:
+        '200':
+          description: Success
+
+  /api/inbox/{sessionId}/reply:
+    post:
+      tags: [Inbox]
+      summary: Seller reply — save message and emit to client
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                store_url: { type: string }
+                message: { type: string }
+                channel: { type: string }
+                user_email: { type: string }
+              required: [store_url, message]
+      responses:
+        '200':
+          description: Message saved (returns messageId)
+
+  /support/tickets:
+    get:
+      tags: [Support]
+      summary: List support tickets (filterable by store and status)
+      parameters:
+        - in: query
+          name: store_url
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+      responses:
+        '200':
+          description: Ticket list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Ticket" }
+
+    post:
+      tags: [Support]
+      summary: Create a new support ticket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                store_url: { type: string }
+                subject: { type: string }
+                description: { type: string }
+                issue_type: { type: string }
+                priority: { type: string }
+                channel: { type: string }
+              required: [store_url, subject, description]
+      responses:
+        '201':
+          description: Created ticket
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Ticket" }
+
+  /support/tickets/{id}:
+    get:
+      tags: [Support]
+      summary: Get single support ticket by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Ticket detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Ticket" }
+
+    patch:
+      tags: [Support]
+      summary: Update support ticket fields (status, priority, etc.)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string }
+                priority: { type: string }
+                issue_type: { type: string }
+                subject: { type: string }
+                description: { type: string }
+      responses:
+        '200':
+          description: Updated ticket
+
+  /api/customer-tickets:
+    get:
+      tags: [CustomerTickets]
+      summary: List customer tickets for a seller dashboard
+      parameters:
+        - in: query
+          name: store_url
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: customer_id
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of customer tickets
+
+    post:
+      tags: [CustomerTickets]
+      summary: Create a ticket from the chatbot on behalf of a customer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                store: { type: string }
+                customerId: { type: string }
+                name: { type: string }
+                email: { type: string }
+                subject: { type: string }
+                description: { type: string }
+                orderId: { type: string }
+                sessionId: { type: string }
+                cartID: { type: string }
+              required: [store, customerId, subject, description]
+      responses:
+        '201':
+          description: Created customer ticket
+
+  /api/customer-tickets/{id}:
+    get:
+      tags: [CustomerTickets]
+      summary: Get a single customer ticket by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Customer ticket
+
+    patch:
+      tags: [CustomerTickets]
+      summary: Update customer ticket fields
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string }
+                priority: { type: string }
+                subject: { type: string }
+                description: { type: string }
+      responses:
+        '200':
+          description: Updated
+
+  /api/appearance/{storeUrl}:
+    get:
+      tags: [Appearance]
+      summary: Get chatbot appearance and branding settings for a store
+      parameters:
+        - in: path
+          name: storeUrl
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Appearance object
+
+    put:
+      tags: [Appearance]
+      summary: Save or update chatbot appearance settings
+      parameters:
+        - in: path
+          name: storeUrl
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                primary_color: { type: string }
+                header_title: { type: string }
+                welcome_message: { type: string }
+                conversation_starters:
+                  type: array
+                  items: { type: string }
+                button_bg_color: { type: string }
+                button_text_color: { type: string }
+                button_shape: { type: string }
+                button_position: { type: string }
+                logo_url: { type: string }
+                show_logo: { type: boolean }
+      responses:
+        '200':
+          description: Saved
+
+  /analytics/conversations:
+    get:
+      tags: [Analytics]
+      summary: Conversation KPIs for a store
+      parameters:
+        - in: query
+          name: store_url
+          required: true
+          schema: { type: string }
+        - in: query
+          name: channel
+          schema: { type: string }
+        - in: query
+          name: days
+          schema: { type: integer, default: 30 }
+      responses:
+        '200':
+          description: KPIs and metrics
+
+  /analytics/sales:
+    get:
+      tags: [Analytics]
+      summary: Sales and conversion analytics for a store
+      parameters:
+        - in: query
+          name: store_url
+          required: true
+          schema: { type: string }
+        - in: query
+          name: since
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Sales summary (may include Shopify GraphQL fetch)
+
+  /analytics/customer-behavior:
+    get:
+      tags: [Analytics]
+      summary: Customer behavior metrics by store
+      parameters:
+        - in: query
+          name: store_url
+          required: true
+          schema: { type: string }
+        - in: query
+          name: since
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Behavior metrics
+
+  /analytics/ai-analyze:
+    post:
+      tags: [Analytics]
+      summary: Trigger AI analysis workflows for sessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                store_url: { type: string }
+                session_id: { type: string }
+                limit: { type: integer }
+              required: [store_url]
+      responses:
+        '200':
+          description: Analysis queued or in progress
+
+  /analytics/ai-insights:
+    get:
+      tags: [Analytics]
+      summary: Retrieve AI analysis insights for a store
+      parameters:
+        - in: query
+          name: store_url
+          required: true
+          schema: { type: string }
+        - in: query
+          name: since
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: AI insights
+
+  /analytics/performance:
+    get:
+      tags: [Analytics]
+      summary: Bot performance metrics for a store
+      parameters:
+        - in: query
+          name: store_url
+          required: true
+          schema: { type: string }
+        - in: query
+          name: since
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Performance metrics
+
+  /admin/platform-overview:
+    get:
+      tags: [Admin]
+      summary: Platform-wide metrics (stores, tokens, tickets)
+      parameters:
+        - in: query
+          name: since
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Admin overview
+
+  /admin/top-stores:
+    get:
+      tags: [Admin]
+      summary: Top stores by activity
+      parameters:
+        - in: query
+          name: since
+          schema: { type: string, format: date }
+        - in: query
+          name: limit
+          schema: { type: integer }
+        - in: query
+          name: sortBy
+          schema: { type: string, enum: [conversations,messages,tokens_used] }
+      responses:
+        '200':
+          description: Top stores list
+
+  /admin/token-usage:
+    get:
+      tags: [Admin]
+      summary: Token usage grouped by store or date
+      parameters:
+        - in: query
+          name: since
+          schema: { type: string, format: date }
+        - in: query
+          name: groupBy
+          schema: { type: string, enum: [store,date] }
+      responses:
+        '200':
+          description: Token usage statistics
+
+  /admin/growth:
+    get:
+      tags: [Admin]
+      summary: Store growth over time
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, default: 30 }
+      responses:
+        '200':
+          description: Growth data
+
+  /admin/stores:
+    get:
+      tags: [Admin]
+      summary: List all stores (admin)
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+      responses:
+        '200':
+          description: Stores list
+
+  /admin/tickets:
+    get:
+      tags: [Admin]
+      summary: All support tickets across platform
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string }
+        - in: query
+          name: priority
+          schema: { type: string }
+      responses:
+        '200':
+          description: Ticket list
+
+  /admin/stats/daily:
+    get:
+      tags: [Admin]
+      summary: Daily platform statistics
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, default: 30 }
+      responses:
+        '200':
+          description: Daily stats

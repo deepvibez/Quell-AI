@@ -1,0 +1,34 @@
+# Dependencies - ignore in all subdirectories
+**/node_modules/
+node_modules/
+
+# Environment variables
+**/.env
+**/.env.local
+**/.env.*.local
+.env
+
+# Build outputs
+**/dist/
+**/build/
+**/.vite/
+
+# Database
+*.sqlite
+*.db
+*.sql
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+**/*.log
+npm-debug.log*
+
+quell/
+
